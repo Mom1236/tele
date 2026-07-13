@@ -65,13 +65,19 @@ create table if not exists applications (
     user_id             bigint not null references users(telegram_id),
     status              application_status not null default 'pending',
 
-    courier             text,
+    store_name          text,
+    order_number        text,
+    account_email       text,
+    verification_code   text,
+    order_total          text,
     tracking_numbers    text,
-    amount              text,
+    order_status        text,                          -- client-reported status (Delivered, In Transit, etc.)
+    desired_resolution  text,                          -- Refund | Replacement | Store Credit
     notes               text,
     is_priority         boolean not null default false,
+    priority_fee        numeric(10,2),                  -- e.g. 20.00 when is_priority is true
 
-    payment_method      text,                          -- 'cashapp' | 'paypal' | 'zelle' | 'crypto'
+    payment_method      text,                          -- 'cashapp' | 'paypal' | 'zelle' | 'crypto' — pays OUR service fee
     payment_details      jsonb,                          -- {"handle": "..."} or {"coin": "...", "wallet": "..."}
 
     admin_channel_message_id bigint,                    -- to edit the admin-channel post as status changes

@@ -79,6 +79,12 @@ def send_document(chat_id: int | str, file_id: str, caption: str | None = None) 
     return _call("sendDocument", payload)
 
 
+def pin_chat_message(chat_id: int | str, message_id: int, disable_notification: bool = False) -> dict:
+    return _call("pinChatMessage", {
+        "chat_id": chat_id, "message_id": message_id, "disable_notification": disable_notification,
+    })
+
+
 def get_chat_member(chat_id: int | str, user_id: int) -> dict:
     return _call("getChatMember", {"chat_id": chat_id, "user_id": user_id})
 

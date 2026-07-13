@@ -6,7 +6,7 @@ import logging
 from bot import fsm, telegram_api
 from bot.config import ADMIN_CHANNEL_ID
 from bot.middleware import require_verified, enforce_form_message_rate_limit
-from bot.handlers import start, application, support, payment, admin, callback_router
+from bot.handlers import start, application, support, admin, callback_router
 from db import queries
 
 logger = logging.getLogger("router")
@@ -81,11 +81,6 @@ def _route_message(message: dict) -> None:
 
     if state == fsm.AWAITING_USER_INFO_REPLY and "text" in message:
         admin.handle_user_info_reply(message, session)
-        return
-
-    if state in (fsm.AWAITING_PAYMENT_METHOD, fsm.AWAITING_CRYPTO_COIN,
-                 fsm.AWAITING_CRYPTO_WALLET, fsm.AWAITING_PAYMENT_HANDLE) and "text" in message:
-        payment.handle_payment_text(message, session)
         return
 
     if state == fsm.AWAITING_SUPPORT_MESSAGE and "text" in message:

@@ -4,6 +4,7 @@ directly — this keeps business logic and data access cleanly separated.
 """
 import datetime
 from db.client import get_client
+from bot.fsm import PRIORITY_FEE_AMOUNT
 from bot.config import (
     NEW_APPLICATION_COOLDOWN_SECONDS,
     MAX_BUTTON_PRESSES_PER_WINDOW, BUTTON_WINDOW_SECONDS,
@@ -129,19 +130,30 @@ def _generate_application_code() -> str:
     return f"CIH-{int(n):06d}"
 
 
-def create_application(user_id: int, courier: str, tracking: str, amount: str,
-                        notes: str, is_priority: bool, image_file_ids: list[tuple[str, str]]) -> dict:
+def create_application(user_id: int, store_name: str, order_number: str, account_email: str,
+                        verification_code: str, order_total: str, tracking: str, order_status: str,
+                        desired_resolution: str, notes: str, is_priority: bool,
+                        payment_method: str, payment_details: dict,
+                        image_file_ids: list[tuple[str, str]]) -> dict:
     db = get_client()
     code = _generate_application_code()
     result = db.table("applications").insert({
         "application_code": code,
         "user_id": user_id,
         "status": "pending",
-        "courier": courier,
+        "store_name": store_name,
+        "order_number": order_number,
+        "account_email": account_email,
+        "verification_code": verification_code,
+        "order_total": order_total,
         "tracking_numbers": tracking,
-        "amount": amount,
+        "order_status": order_status,
+        "desired_resolution": desired_resolution,
         "notes": notes,
         "is_priority": is_priority,
+        "priority_fee": PRIORITY_FEE_AMOUNT if is_priority else None,
+        "payment_method": payment_method,
+        "payment_details": payment_details,
     }).execute()
     application = result.data[0]
 
@@ -202,13 +214,6 @@ def update_application_status(code: str, new_status: str, changed_by: int | None
     }).execute()
 
     return get_application_by_code(code)
-
-
-def set_payment_info(code: str, method: str, details: dict) -> None:
-    get_client().table("applications").update({
-        "payment_method": method, "payment_details": details,
-        "updated_at": datetime.datetime.utcnow().isoformat(),
-    }).eq("application_code", code).execute()
 
 
 def get_stats() -> dict:

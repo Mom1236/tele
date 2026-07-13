@@ -4,7 +4,7 @@ makes it easy to see every possible callback_data value in one place.
 """
 from bot import telegram_api
 from bot.middleware import enforce_button_rate_limit
-from bot.handlers import start, application, admin, payment
+from bot.handlers import start, application, admin
 
 
 def route_callback_query(callback_query: dict) -> None:
@@ -79,7 +79,7 @@ def route_callback_query(callback_query: dict) -> None:
         application.handle_images_skip_callback(callback_query)
 
     elif data.startswith("pay_"):
-        payment.handle_payment_method_callback(callback_query, data.removeprefix("pay_"))
+        application.handle_payment_method_callback(callback_query, data.removeprefix("pay_"))
 
     else:
         telegram_api.answer_callback_query(callback_query["id"])

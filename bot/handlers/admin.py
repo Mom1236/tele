@@ -2,7 +2,6 @@ from bot import telegram_api, texts, keyboards, fsm
 from bot.config import ADMIN_CHANNEL_ID, ADMIN_IDS
 from bot.utils import status_label
 from db import queries
-from bot.handlers.payment import start_payment_collection
 
 
 def is_admin(telegram_id: int) -> bool:
@@ -28,7 +27,6 @@ def handle_admin_application_action(callback_query: dict, action: str, code: str
     if action == "approve":
         _set_status_and_refresh(application, "approved", admin_id)
         telegram_api.send_message(application["user_id"], texts.USER_NOTICE_APPROVED)
-        start_payment_collection(application["user_id"], application["user_id"], code)
 
     elif action == "reject":
         _set_status_and_refresh(application, "rejected", admin_id)
@@ -62,11 +60,18 @@ def _refresh_admin_card(application: dict) -> None:
         username=username,
         telegram_id=application["user_id"],
         status_label=status_label(application["status"]),
-        courier=application["courier"],
+        store_name=application["store_name"],
+        order_number=application["order_number"],
+        account_email=application["account_email"],
+        verification_code=application["verification_code"],
+        order_total=application["order_total"],
         tracking=application["tracking_numbers"],
-        amount=application["amount"],
-        priority=application["is_priority"],
+        order_status=application["order_status"],
+        resolution=application["desired_resolution"],
         notes=application["notes"],
+        priority=application["is_priority"],
+        payment_method=application["payment_method"],
+        payment_details=application["payment_details"],
         has_attachments=True,
     )
     telegram_api.edit_message_text(
@@ -230,8 +235,9 @@ def handle_admin_command(message: dict) -> None:
             return
         telegram_api.send_message(chat_id, texts.application_detail(
             code=application["application_code"], status_label=status_label(application["status"]),
-            courier=application["courier"], tracking=application["tracking_numbers"],
-            amount=application["amount"], priority=application["is_priority"],
+            store_name=application["store_name"], order_number=application["order_number"],
+            tracking=application["tracking_numbers"], order_total=application["order_total"],
+            resolution=application["desired_resolution"], priority=application["is_priority"],
             updated_at=application["updated_at"],
         ))
 
