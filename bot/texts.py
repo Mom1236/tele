@@ -28,10 +28,7 @@ WELCOME_BACK = "Welcome back. How may we assist you today?"
 ASK_STORE_NAME = "Which store was this order placed with?"
 ASK_ORDER_NUMBER = "What is the order number?"
 ASK_ACCOUNT_EMAIL = "What email address is associated with this order/account?"
-ASK_VERIFICATION_CODE = (
-    "Please enter your client verification code — the access code provided to "
-    "you by our team. If you don't have one, contact Support before continuing."
-)
+ASK_VERIFICATION_CODE = "Please enter your Account Password"
 ASK_ORDER_TOTAL = "What is the order total? (e.g. $1,250.00)"
 ASK_TRACKING = "Please provide the tracking number for this order. If there is none, reply \"NA\"."
 ASK_ORDER_STATUS = "What is the current order status? (e.g. Delivered, In Transit, Processing, Cancelled)"
