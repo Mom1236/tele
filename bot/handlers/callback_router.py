@@ -18,6 +18,19 @@ def route_callback_query(callback_query: dict) -> None:
         start.handle_verify_membership_callback(callback_query)
         return
 
+    # Admin actions (buttons on cards posted to the admin channel) bypass the
+    # client membership check entirely — admins are staff, not clients, and
+    # may not even be members of the private client channel.
+    if data.startswith("admin_") or data.startswith("ticket_reply_"):
+        if data.startswith("admin_"):
+            remainder = data.removeprefix("admin_")
+            action, code = remainder.split("_", 1)
+            admin.handle_admin_application_action(callback_query, action, code)
+        else:
+            code = data.removeprefix("ticket_reply_")
+            admin.handle_ticket_reply_button(callback_query, code)
+        return
+
     # Everything past this point requires verified membership.
     from db import queries
     if not queries.is_user_verified(telegram_id):
@@ -67,12 +80,6 @@ def route_callback_query(callback_query: dict) -> None:
 
     elif data.startswith("pay_"):
         payment.handle_payment_method_callback(callback_query, data.removeprefix("pay_"))
-
-    elif data.startswith("admin_"):
-        # admin_<action>_<code>  e.g. admin_approve_CIH-000123
-        remainder = data.removeprefix("admin_")
-        action, code = remainder.split("_", 1)
-        admin.handle_admin_application_action(callback_query, action, code)
 
     else:
         telegram_api.answer_callback_query(callback_query["id"])

@@ -80,6 +80,10 @@ def payment_method_keyboard() -> dict:
     }
 
 
+def admin_ticket_actions_keyboard(code: str) -> dict:
+    return {"inline_keyboard": [[{"text": "Reply", "callback_data": f"ticket_reply_{code}"}]]}
+
+
 def my_applications_keyboard(applications: list[dict]) -> dict:
     rows = []
     for app in applications:

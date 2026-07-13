@@ -1,5 +1,5 @@
-from bot import telegram_api, texts, fsm
-from bot.config import ADMIN_GROUP_ID
+from bot import telegram_api, texts, fsm, keyboards
+from bot.config import ADMIN_CHANNEL_ID
 from db import queries
 
 
@@ -62,12 +62,12 @@ def _finalize_ticket(chat_id: int, telegram_id: int, context: dict) -> None:
         code=ticket["ticket_code"], username=user.get("username"), telegram_id=telegram_id,
         message=ticket["message"], has_attachments=bool(images),
     )
-    result = telegram_api.send_message(ADMIN_GROUP_ID, card)
+    result = telegram_api.send_message(ADMIN_CHANNEL_ID, card, keyboards.admin_ticket_actions_keyboard(ticket["ticket_code"]))
     if result.get("ok"):
         queries.set_ticket_admin_channel_message_id(ticket["ticket_code"], result["result"]["message_id"])
 
     for file_id, file_type in images:
         if file_type == "photo":
-            telegram_api.send_photo(ADMIN_GROUP_ID, file_id, caption=ticket["ticket_code"])
+            telegram_api.send_photo(ADMIN_CHANNEL_ID, file_id, caption=ticket["ticket_code"])
         else:
-            telegram_api.send_document(ADMIN_GROUP_ID, file_id, caption=ticket["ticket_code"])
+            telegram_api.send_document(ADMIN_CHANNEL_ID, file_id, caption=ticket["ticket_code"])

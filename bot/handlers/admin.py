@@ -1,5 +1,5 @@
 from bot import telegram_api, texts, keyboards, fsm
-from bot.config import ADMIN_GROUP_ID, ADMIN_IDS
+from bot.config import ADMIN_CHANNEL_ID, ADMIN_IDS
 from bot.utils import status_label
 from db import queries
 from bot.handlers.payment import start_payment_collection
@@ -39,69 +39,122 @@ def handle_admin_application_action(callback_query: dict, action: str, code: str
         telegram_api.send_message(application["user_id"], texts.USER_NOTICE_COMPLETED)
 
     elif action == "moreinfo":
-        prompt_text = texts.ASK_ADMIN_MORE_INFO_TEXT.format(code=code)
-        result = telegram_api.send_message(ADMIN_GROUP_ID, prompt_text)
-        if result.get("ok"):
-            queries.set_admin_pending_action(
-                result["result"]["message_id"], "awaiting_more_info_text", application["id"]
-            )
+        telegram_api.send_message(admin_id, texts.ASK_ADMIN_MORE_INFO_TEXT.format(code=code))
+        queries.set_admin_pending_action(admin_id, "awaiting_more_info_text", application["id"])
 
 
 def _set_status_and_refresh(application: dict, new_status: str, admin_id: int) -> None:
     updated = queries.update_application_status(application["application_code"], new_status, changed_by=admin_id)
-    if application.get("admin_channel_message_id"):
-        from db.client import get_client
-        user_res = get_client().table("users").select("username").eq("telegram_id", updated["user_id"]).execute()
-        username = user_res.data[0]["username"] if user_res.data else None
-        new_card = texts.admin_application_card(
-            code=updated["application_code"],
-            username=username,
-            telegram_id=updated["user_id"],
-            status_label=status_label(updated["status"]),
-            courier=updated["courier"],
-            tracking=updated["tracking_numbers"],
-            amount=updated["amount"],
-            priority=updated["is_priority"],
-            notes=updated["notes"],
-            has_attachments=True,
-        )
-        telegram_api.edit_message_text(
-            ADMIN_GROUP_ID, application["admin_channel_message_id"], new_card,
-            keyboards.admin_application_actions_keyboard(updated["application_code"]),
-        )
+    _refresh_admin_card(updated)
+
+
+def _refresh_admin_card(application: dict) -> None:
+    """Re-renders the admin-channel card to reflect the application's CURRENT
+    status without writing a new status_history row (that's handled wherever
+    the status was actually changed)."""
+    if not application.get("admin_channel_message_id"):
+        return
+    from db.client import get_client
+    user_res = get_client().table("users").select("username").eq("telegram_id", application["user_id"]).execute()
+    username = user_res.data[0]["username"] if user_res.data else None
+    new_card = texts.admin_application_card(
+        code=application["application_code"],
+        username=username,
+        telegram_id=application["user_id"],
+        status_label=status_label(application["status"]),
+        courier=application["courier"],
+        tracking=application["tracking_numbers"],
+        amount=application["amount"],
+        priority=application["is_priority"],
+        notes=application["notes"],
+        has_attachments=True,
+    )
+    telegram_api.edit_message_text(
+        ADMIN_CHANNEL_ID, application["admin_channel_message_id"], new_card,
+        keyboards.admin_application_actions_keyboard(application["application_code"]),
+    )
 
 
 # ---------------------------------------------------------------------------
-# Admin replies in the group — routed here from the router when a message in
-# ADMIN_GROUP_ID is a reply to a tracked prompt or ticket card.
+# "Reply" button on a support ticket card — DMs the clicking admin to collect
+# their reply text (same reasoning as Need More Info above).
 # ---------------------------------------------------------------------------
-def handle_admin_reply_to_more_info_prompt(message: dict, pending_action: dict) -> None:
-    admin_message = message.get("text", "").strip()
-    application_id = pending_action["application_id"]
+def handle_ticket_reply_button(callback_query: dict, ticket_code: str) -> None:
+    admin_id = callback_query["from"]["id"]
+    if not is_admin(admin_id):
+        telegram_api.answer_callback_query(callback_query["id"], "You are not authorized to do this.", show_alert=True)
+        return
 
+    ticket = queries.get_ticket_by_code(ticket_code)
+    if not ticket:
+        telegram_api.answer_callback_query(callback_query["id"], "Ticket not found.", show_alert=True)
+        return
+
+    telegram_api.answer_callback_query(callback_query["id"])
+    telegram_api.send_message(admin_id, f"Please type your reply for support ticket {ticket_code}:")
+    queries.set_admin_pending_action(admin_id, "awaiting_ticket_reply_text", ticket["id"])
+
+
+# ---------------------------------------------------------------------------
+# Dispatches an admin's free-text DM when they have a pending action queued
+# (Need More Info or a ticket Reply). Called from router.py for any private
+# message from an admin BEFORE normal command/menu handling, so their answer
+# lands in the right place.
+# ---------------------------------------------------------------------------
+def handle_admin_dm_text(message: dict) -> bool:
+    """Returns True if the message was consumed as a pending-action reply."""
+    admin_id = message["from"]["id"]
+    pending = queries.get_admin_pending_action(admin_id)
+    if not pending:
+        return False
+
+    text = message.get("text", "").strip()
+    if not text:
+        return False
+
+    if pending["action"] == "awaiting_more_info_text":
+        _handle_more_info_reply(message["chat"]["id"], admin_id, pending["reference_id"], text)
+    elif pending["action"] == "awaiting_ticket_reply_text":
+        _handle_ticket_reply(message["chat"]["id"], admin_id, pending["reference_id"], text)
+
+    queries.clear_admin_pending_action(admin_id)
+    return True
+
+
+def _handle_more_info_reply(admin_chat_id: int, admin_id: int, application_id: int, admin_message: str) -> None:
     db_application = _get_application_by_id(application_id)
     if not db_application:
+        telegram_api.send_message(admin_chat_id, "That application could not be found.")
         return
 
     code = db_application["application_code"]
-    queries.update_application_status(code, "awaiting_user_response", changed_by=message["from"]["id"], note=admin_message)
-    queries.clear_admin_pending_action(pending_action["prompt_message_id"])
+    queries.update_application_status(code, "awaiting_user_response", changed_by=admin_id, note=admin_message)
 
     queries.set_session(db_application["user_id"], fsm.AWAITING_USER_INFO_REPLY, {"application_code": code})
     telegram_api.send_message(
         db_application["user_id"],
         texts.USER_NOTICE_MORE_INFO.format(code=code, message=admin_message),
     )
-    telegram_api.send_message(message["chat"]["id"], f"Your request for more information has been sent to the user regarding {code}.")
+    telegram_api.send_message(admin_chat_id, f"Your request for more information has been sent to the user regarding {code}.")
+
+    if db_application.get("admin_channel_message_id"):
+        refreshed = _get_application_by_id(application_id)
+        _refresh_admin_card(refreshed)
 
 
-def handle_admin_reply_to_ticket(message: dict, ticket: dict) -> None:
-    reply_text = message.get("text", "").strip()
+def _handle_ticket_reply(admin_chat_id: int, admin_id: int, ticket_id: int, reply_text: str) -> None:
+    from db.client import get_client
+    res = get_client().table("support_tickets").select("*").eq("id", ticket_id).execute()
+    ticket = res.data[0] if res.data else None
+    if not ticket:
+        telegram_api.send_message(admin_chat_id, "That ticket could not be found.")
+        return
+
     updated = queries.reply_to_ticket(ticket["ticket_code"], reply_text)
     telegram_api.send_message(
         updated["user_id"], texts.SUPPORT_REPLY_TO_USER.format(code=updated["ticket_code"], message=reply_text)
     )
-    telegram_api.send_message(message["chat"]["id"], f"Your reply has been sent to the user for {updated['ticket_code']}.")
+    telegram_api.send_message(admin_chat_id, f"Your reply has been sent to the user for {updated['ticket_code']}.")
 
 
 def _get_application_by_id(application_id: int) -> dict | None:
@@ -120,17 +173,15 @@ def handle_user_info_reply(message: dict, session: dict) -> None:
     context = session.get("context") or {}
     code = context.get("application_code")
 
-    queries.update_application_status(code, "under_review", changed_by=None, note=f"User response: {text}")
+    application = queries.update_application_status(code, "under_review", changed_by=None, note=f"User response: {text}")
     queries.clear_session(telegram_id)
     telegram_api.send_message(chat_id, texts.USER_INFO_REPLY_RECEIVED)
 
-    application = queries.get_application_by_code(code)
     telegram_api.send_message(
-        ADMIN_GROUP_ID,
+        ADMIN_CHANNEL_ID,
         f"User response received for {code}:\n\n\"{text}\"\n\nStatus reverted to Under Review.",
     )
-    if application and application.get("admin_channel_message_id"):
-        _set_status_and_refresh(application, "under_review", admin_id=None)
+    _refresh_admin_card(application)
 
 
 # ---------------------------------------------------------------------------

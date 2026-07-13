@@ -153,13 +153,14 @@ create index if not exists idx_rate_events_lookup on rate_events(telegram_id, ac
 -- ADMIN PENDING ACTIONS  (tracks "admin clicked Need More Info, we're waiting
 -- for their free-text reply in DM")
 -- ----------------------------------------------------------------------------
--- Keyed by the message_id of the bot's own "what info do you need?" prompt in
--- the admin group. Whichever admin replies to that specific message triggers
--- the follow-up — this way any admin can respond, not just whoever clicked.
+-- Keyed by the admin's own Telegram ID. When an admin clicks "Need More
+-- Info" or "Reply" on a ticket, the bot DMs that admin privately to collect
+-- their free-text response (channels don't let the bot attribute a channel
+-- post to a specific admin, so this happens in DM instead of in-channel).
 create table if not exists admin_pending_actions (
-    prompt_message_id   bigint primary key,
-    action              text not null,                  -- 'awaiting_more_info_text'
-    application_id      bigint references applications(id),
+    admin_telegram_id   bigint primary key,
+    action              text not null,                  -- 'awaiting_more_info_text' | 'awaiting_ticket_reply_text'
+    reference_id        bigint not null,                -- application.id or support_tickets.id depending on action
     created_at          timestamptz not null default now()
 );
 

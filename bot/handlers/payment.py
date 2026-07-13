@@ -1,5 +1,5 @@
 from bot import telegram_api, texts, keyboards, fsm
-from bot.config import ADMIN_GROUP_ID
+from bot.config import ADMIN_CHANNEL_ID
 from db import queries
 
 
@@ -55,4 +55,4 @@ def _finalize_payment_info(chat_id: int, telegram_id: int, context: dict, detail
     queries.clear_session(telegram_id)
 
     telegram_api.send_message(chat_id, texts.PAYMENT_INFO_RECEIVED)
-    telegram_api.send_message(ADMIN_GROUP_ID, texts.admin_payment_update(code, method, details))
+    telegram_api.send_message(ADMIN_CHANNEL_ID, texts.admin_payment_update(code, method, details))

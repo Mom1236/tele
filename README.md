@@ -12,7 +12,7 @@ built for Python + Vercel serverless webhooks + Supabase (Postgres).
 Telegram  ──POST──▶  /api/webhook (Vercel serverless, Flask)
                           │
                           ▼
-                    bot/router.py  (decides: DM? admin group? which flow?)
+                    bot/router.py  (decides: DM? admin channel? which flow?)
                           │
         ┌─────────────────┼──────────────────────┐
         ▼                 ▼                      ▼
@@ -32,15 +32,18 @@ Telegram  ──POST──▶  /api/webhook (Vercel serverless, Flask)
   library like `python-telegram-bot`, because that library's async runtime
   fights with Vercel's short-lived WSGI invocation model and adds cold-start
   weight for no benefit here.
-- The **admin group must be a Telegram group/supergroup, not a broadcast
-  channel.** Buttons work in either, but two features require admins to be
-  able to send real text messages that the bot can attribute to a specific
-  person: the "Need More Info" follow-up and replying to support tickets.
-  Broadcast channels don't reliably support this.
+- The **admin chat is a regular Telegram broadcast channel.** Buttons
+  (Approve/Reject/Need More Info/Mark Complete, and Reply on tickets) work
+  fine in a channel — Telegram's callback_query always carries the identity
+  of whoever clicked, even in a channel. What doesn't work in a channel is
+  attributing a *typed message* to a specific admin. So whenever an admin
+  needs to type something (answering "what info do you need?", or replying
+  to a support ticket), the bot DMs that specific admin privately to collect
+  it, then forwards it on — the channel itself stays read-only/broadcast.
 - **Admin typed commands** (`/stats`, `/broadcast`, `/application`,
-  `/setstatus`) are run by **DMing the bot directly**, not by typing in the
-  group — this keeps the group focused on application review, and avoids
-  ambiguity about who is issuing a command.
+  `/setstatus`) are run by **DMing the bot directly**, which keeps every
+  admin text interaction — commands and reply flows alike — in one
+  consistent place: a private conversation with the bot.
 
 ---
 
@@ -129,30 +132,31 @@ who guesses your URL from injecting fake Telegram updates.
 Submit New Application
   → check: < 3 active applications? not in 10-min cooldown?
   → Courier → Tracking → Amount → Notes → Priority (Y/N) → Images (0–10, Done/Skip)
-  → generate CIH-###### → save to DB → confirm to user → post to admin group
+  → generate CIH-###### → save to DB → confirm to user → post to admin channel
 ```
 
-### Admin review (buttons on the admin-group card)
+### Admin review (buttons on the admin-channel card)
 ```
 Approve        → status=approved   → DM user → start payment collection flow
 Reject         → status=rejected   → DM user
 Mark Complete  → status=completed  → DM user
-Need More Info → bot posts prompt in group → admin replies to that message
-               → status=awaiting_user_response → user DM'd the request
-               → user replies → status=under_review → admin group notified
+Need More Info → bot DMs the clicking admin privately: "what info do you need?"
+               → admin types the reply in that DM → status=awaiting_user_response
+               → user DM'd the request → user replies → status=under_review
 ```
 
 ### Payment collection (triggered right after Approve)
 ```
 "How would you like to receive payment?" [Cash App] [PayPal] [Zelle] [Crypto]
-  Crypto → ask coin → ask wallet → save → notify admin group
-  Other  → ask handle (username/email/phone) → save → notify admin group
+  Crypto → ask coin → ask wallet → save → notify admin channel
+  Other  → ask handle (username/email/phone) → save → notify admin channel
 ```
 
 ### Support
 ```
 Support → "How can we help?" → message (+ optional screenshots, "done" to finish)
-  → ticket posted to admin group → admin replies (Telegram reply-to-message)
+  → ticket posted to admin channel with a Reply button
+  → admin clicks Reply → bot DMs that admin privately for the reply text
   → user DM'd the response
 ```
 
@@ -162,8 +166,8 @@ Support → "How can we help?" → message (+ optional screenshots, "done" to fi
 
 1. Create Supabase project → run `db/schema.sql`.
 2. Create the bot with @BotFather → get `BOT_TOKEN`.
-3. Create your private channel + admin **group** (not channel) in Telegram;
-   add the bot to both as an admin.
+3. Create your private client channel + admin channel in Telegram; add the
+   bot to both as an admin.
 4. Push this repo to GitHub, import into Vercel, set environment variables
    (see below), deploy.
 5. Register the webhook (one-time call — see step 6 in Installation).
@@ -179,7 +183,7 @@ Support → "How can we help?" → message (+ optional screenshots, "done" to fi
 | `WEBHOOK_SECRET` | Any long random string you choose — validates incoming requests |
 | `PRIVATE_CHANNEL_ID` | Numeric ID of your gated channel, e.g. `-1001234567890` |
 | `PRIVATE_CHANNEL_INVITE_LINK` | Public invite link shown on the "Join Channel" button |
-| `ADMIN_GROUP_ID` | Numeric ID of your admin **group** (must allow bot to post/read) |
+| `ADMIN_CHANNEL_ID` | Numeric ID of your admin channel (applications/tickets are posted here) |
 | `ADMIN_IDS` | Comma-separated Telegram user IDs allowed to use admin features |
 | `SUPABASE_URL` | From Supabase project settings |
 | `SUPABASE_SERVICE_KEY` | Supabase **service_role** key (server-side only, never expose client-side) |
@@ -213,15 +217,21 @@ beyond setting the environment variables in the Vercel dashboard
 ### Step 3 — Set up Telegram chats
 1. Create your **private channel** (or use an existing one) — this is where
    paying clients live. Get its numeric ID (see tip below).
-2. Create a **private group** (not a channel) for admin review. Add the bot
-   to it and promote it to admin with permission to post messages and read
-   all messages.
-3. Add the bot to the private channel as an admin too (needed for
-   `getChatMember` checks to work reliably).
+2. Create your **admin channel** — this is where every application and
+   support ticket gets posted for review. It can be a normal broadcast
+   channel; it does not need to be a group.
+3. Add the bot to **both** channels as an **admin**, with permission to post
+   messages (needed to send cards) — for the private client channel it also
+   needs enough access for `getChatMember` membership checks to work.
+4. **Important:** each admin listed in `ADMIN_IDS` must message the bot
+   directly at least once (e.g. send `/start` to it in DM) before the bot
+   can DM them. Telegram doesn't allow bots to cold-message a user who has
+   never opened a chat with it — this is what makes the "Need More Info"
+   and ticket-reply DM prompts possible.
 
 **Tip — getting a numeric chat ID:** Add [@userinfobot](https://t.me/userinfobot)
-or [@RawDataBot](https://t.me/RawDataBot) to the channel/group temporarily,
-or forward a message from that chat to @userinfobot in DM.
+or [@RawDataBot](https://t.me/RawDataBot) to the channel temporarily, or
+forward a message from that channel to @userinfobot in DM.
 
 ### Step 4 — Clone and configure locally
 ```bash
@@ -296,13 +306,14 @@ For fully offline testing (no real Telegram calls), monkeypatch
 ## 11. Production Deployment Checklist
 
 - [ ] `db/schema.sql` applied to Supabase
-- [ ] Bot added as admin to both the private channel and the admin group
+- [ ] Bot added as admin to both the private channel and the admin channel
+- [ ] Every admin in `ADMIN_IDS` has DM'd the bot at least once (so it can message them)
 - [ ] All environment variables set in Vercel (Production environment)
 - [ ] Webhook registered with the correct `secret_token`
 - [ ] `getWebhookInfo` shows no `last_error_message`
 - [ ] Sent a real `/start` from a non-admin test account and confirmed the
       full flow: verification → new application → images → submission →
-      admin group card appears → Approve → payment info collection → DM
+      admin channel card appears → Approve → payment info collection → DM
       confirmations at each step
 - [ ] Tested `/stats`, `/application <code>`, `/setstatus`, `/broadcast`
       from an admin account via DM
@@ -328,5 +339,5 @@ For fully offline testing (no real Telegram calls), monkeypatch
   campaigns, application categories, and user history/reputation can all be
   added as new tables/columns without restructuring what exists.
 - This is a solid production-ready **scaffold** — before handling real
-  client money, do a full run-through with a test channel/group and a
+  client money, do a full run-through with a test channel and a
   throwaway Supabase project first.

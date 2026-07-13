@@ -1,5 +1,5 @@
 from bot import telegram_api, texts, keyboards, fsm
-from bot.config import ADMIN_GROUP_ID, MAX_ACTIVE_APPLICATIONS, MAX_IMAGES_PER_APPLICATION
+from bot.config import ADMIN_CHANNEL_ID, MAX_ACTIVE_APPLICATIONS, MAX_IMAGES_PER_APPLICATION
 from bot.utils import is_valid_amount, status_label, format_timestamp
 from db import queries
 
@@ -194,7 +194,7 @@ def _post_to_admin_group(application: dict, images: list) -> None:
     )
 
     result = telegram_api.send_message(
-        ADMIN_GROUP_ID, card_text, keyboards.admin_application_actions_keyboard(application["application_code"])
+        ADMIN_CHANNEL_ID, card_text, keyboards.admin_application_actions_keyboard(application["application_code"])
     )
     if result.get("ok"):
         queries.set_admin_channel_message_id(application["application_code"], result["result"]["message_id"])
@@ -202,9 +202,9 @@ def _post_to_admin_group(application: dict, images: list) -> None:
     # Send attachments as a follow-up album-style burst so the card stays clean.
     for file_id, file_type in images:
         if file_type == "photo":
-            telegram_api.send_photo(ADMIN_GROUP_ID, file_id, caption=application["application_code"])
+            telegram_api.send_photo(ADMIN_CHANNEL_ID, file_id, caption=application["application_code"])
         else:
-            telegram_api.send_document(ADMIN_GROUP_ID, file_id, caption=application["application_code"])
+            telegram_api.send_document(ADMIN_CHANNEL_ID, file_id, caption=application["application_code"])
 
 
 # ---------------------------------------------------------------------------

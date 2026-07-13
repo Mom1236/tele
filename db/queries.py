@@ -235,24 +235,28 @@ def get_all_verified_user_ids() -> list[int]:
 
 
 # ---------------------------------------------------------------------------
-# ADMIN PENDING ACTIONS (Need More Info free-text follow-up)
-# Keyed by the bot's own prompt message_id so ANY admin can reply to it.
+# ADMIN PENDING ACTIONS — DM-based follow-ups
+# Keyed by the admin's own Telegram ID. Used when an admin clicks a button
+# that requires them to type a free-text response (Need More Info, ticket
+# Reply) — since the admin channel is a broadcast channel, the bot can't
+# attribute an in-channel message to a specific admin, so this happens via
+# a private DM with that admin instead.
 # ---------------------------------------------------------------------------
-def set_admin_pending_action(prompt_message_id: int, action: str, application_id: int) -> None:
+def set_admin_pending_action(admin_id: int, action: str, reference_id: int) -> None:
     db = get_client()
     db.table("admin_pending_actions").upsert({
-        "prompt_message_id": prompt_message_id, "action": action, "application_id": application_id,
+        "admin_telegram_id": admin_id, "action": action, "reference_id": reference_id,
     }).execute()
 
 
-def get_admin_pending_action(prompt_message_id: int) -> dict | None:
+def get_admin_pending_action(admin_id: int) -> dict | None:
     db = get_client()
-    res = db.table("admin_pending_actions").select("*").eq("prompt_message_id", prompt_message_id).execute()
+    res = db.table("admin_pending_actions").select("*").eq("admin_telegram_id", admin_id).execute()
     return res.data[0] if res.data else None
 
 
-def clear_admin_pending_action(prompt_message_id: int) -> None:
-    get_client().table("admin_pending_actions").delete().eq("prompt_message_id", prompt_message_id).execute()
+def clear_admin_pending_action(admin_id: int) -> None:
+    get_client().table("admin_pending_actions").delete().eq("admin_telegram_id", admin_id).execute()
 
 
 # ---------------------------------------------------------------------------
