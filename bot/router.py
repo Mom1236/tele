@@ -4,7 +4,7 @@ Vercel webhook function (api/webhook.py) for every incoming update.
 """
 import logging
 from bot import fsm, telegram_api
-from bot.config import ADMIN_GROUP_ID
+from bot.config import ADMIN_CHANNEL_ID
 from bot.middleware import require_verified, enforce_form_message_rate_limit
 from bot.handlers import start, application, support, payment, admin, callback_router
 from db import queries
@@ -24,11 +24,20 @@ def route_update(update: dict) -> None:
 
 def _route_message(message: dict) -> None:
     chat = message["chat"]
-    chat_type = chat.get("type")
 
-    # --- Messages arriving in the admin group ---
-    if str(chat["id"]) == str(ADMIN_GROUP_ID) and chat_type in ("group", "supergroup"):
-        _route_admin_group_message(message)
+    # Hard guard: this bot only ever has real conversations in PRIVATE chats.
+    # Any update whose chat is a channel or group — including "someone joined"
+    # service messages, or anything else Telegram sends about activity in
+    # your private client channel or admin channel — must never be treated
+    # as a DM to respond to. Without this, a join event in your channel could
+    # get misread as "this person messaged the bot" and the bot would reply
+    # publicly into that channel instead of privately to the user.
+    if chat.get("type") != "private":
+        return
+
+    # (Belt-and-suspenders: the admin channel is a channel, so the check
+    # above already excludes it, but this stays as an explicit safeguard.)
+    if str(chat["id"]) == str(ADMIN_CHANNEL_ID):
         return
 
     # --- Everything else is a private DM from a regular user (or an admin) ---
@@ -41,6 +50,13 @@ def _route_message(message: dict) -> None:
     if text.startswith("/start"):
         start.handle_start(message)
         return
+
+    # If this admin has a pending "type your reply" action queued (from
+    # clicking Need More Info or Reply on a ticket), consume it here first —
+    # takes priority over everything else in their DM.
+    if admin.is_admin(telegram_id) and "text" in message:
+        if admin.handle_admin_dm_text(message):
+            return
 
     if text.startswith("/") and admin.is_admin(telegram_id):
         admin.handle_admin_command(message)
@@ -85,29 +101,3 @@ def _route_message(message: dict) -> None:
 
     # Idle state with plain text — nudge them back to the main menu.
     start.show_main_menu(chat["id"])
-
-
-def _route_admin_group_message(message: dict) -> None:
-    """
-    Handles replies from admins inside the admin group: either a reply to a
-    'Need More Info' prompt, or a reply to a support ticket card.
-    """
-    if "reply_to_message" not in message or "text" not in message:
-        return
-    if not admin.is_admin(message["from"]["id"]):
-        return
-
-    replied_to_id = message["reply_to_message"]["message_id"]
-
-    pending_action = queries.get_admin_pending_action(replied_to_id)
-    if pending_action:
-        admin.handle_admin_reply_to_more_info_prompt(message, pending_action)
-        return
-
-    # Otherwise, check whether this is a reply to a support ticket card.
-    from db.client import get_client
-    ticket_res = get_client().table("support_tickets").select("*").eq(
-        "admin_channel_message_id", replied_to_id
-    ).execute()
-    if ticket_res.data:
-        admin.handle_admin_reply_to_ticket(message, ticket_res.data[0])
