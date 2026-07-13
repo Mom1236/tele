@@ -3,18 +3,27 @@ Cross-cutting checks applied before handlers run: channel membership and
 rate limiting. Kept out of individual handlers so the rules are enforced
 consistently everywhere.
 """
+import logging
 from bot import telegram_api, texts, keyboards
 from bot.config import PRIVATE_CHANNEL_ID
 from db import queries
+
+logger = logging.getLogger("middleware")
 
 
 def check_membership_live(telegram_id: int) -> bool:
     """Hits the Telegram API directly — used at /start and on 'I've Joined'."""
     result = telegram_api.get_chat_member(PRIVATE_CHANNEL_ID, telegram_id)
     if not result.get("ok"):
+        logger.warning(
+            "getChatMember failed for user %s in channel %s: %s",
+            telegram_id, PRIVATE_CHANNEL_ID, result,
+        )
         return False
     status = result.get("result", {}).get("status")
-    return telegram_api.is_member_status(status)
+    is_member = telegram_api.is_member_status(status)
+    logger.info("Membership check for user %s: status=%s -> is_member=%s", telegram_id, status, is_member)
+    return is_member
 
 
 def require_verified(telegram_id: int, chat_id: int) -> bool:
