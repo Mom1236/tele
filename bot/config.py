@@ -24,7 +24,7 @@ PRIVATE_CHANNEL_INVITE_LINK: str = _get_env("PRIVATE_CHANNEL_INVITE_LINK")
 
 # The admin group where applications/support tickets are posted.
 # Must be a GROUP or SUPERGROUP (not a broadcast channel) — see README.
-ADMIN_GROUP_ID: str = _get_env("ADMIN_GROUP_ID")
+ADMIN_CHANNEL_ID: str = _get_env("ADMIN_CHANNEL_ID")
 
 # Comma-separated list of admin Telegram user IDs, e.g. "8521287064,111111111"
 ADMIN_IDS: list[int] = [
